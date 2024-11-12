@@ -3,6 +3,8 @@ name: Deploy to Staging
 on:
   issue_comment:
     types: [created]
+    if: |
+      contains(github.event.issue.title, 'Deploy to Staging needs approval')
 
 permissions:
   issues: write
