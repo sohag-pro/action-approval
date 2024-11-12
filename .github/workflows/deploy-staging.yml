@@ -20,6 +20,7 @@ jobs:
       - name: Check Approver
         id: check-approver
         uses: actions/github-script@v6
+        continue-on-error: true
         with:
           script: |
             // Define allowed approvers
@@ -41,12 +42,12 @@ jobs:
             // First check if user is directly in allowed list
             if (ALLOWED_APPROVERS.includes(commenter)) {
               console.log('Approver is in allowed users list');
-              return true;
+              return 'authorized';
             }
             
             // Check if user is member of allowed teams
-            try {
-              for (const team of ALLOWED_TEAMS) {
+            for (const team of ALLOWED_TEAMS) {
+              try {
                 const { data: isMember } = await github.rest.teams.getMembershipForUserInOrg({
                   org: context.repo.owner,
                   team_slug: team,
@@ -55,20 +56,35 @@ jobs:
                 
                 if (isMember.state === 'active') {
                   console.log(`Approver is member of team: ${team}`);
-                  return true;
+                  return 'authorized';
                 }
+              } catch (error) {
+                // If team is not found or any other error, log it and continue checking other teams
+                console.log(`Error checking membership in team ${team}:`, error.message);
+                continue;
               }
-            } catch (error) {
-              console.log('Error checking team membership:', error);
             }
             
             console.log('User not authorized to approve deployments');
+            return 'unauthorized';
+
+      - name: Handle Unauthorized User
+        if: steps.check-approver.outputs.result == 'unauthorized'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const approver = context.payload.comment.user.login;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `❌ @${approver} is not authorized to approve deployments. Please wait for approval from an authorized team member.`
+            });
             core.setFailed('Approval must come from an authorized user or team member');
-            return false;
 
       - name: Extract commit SHA
         id: extract-sha
-        if: steps.check-approver.outputs.result == 'true'
+        if: steps.check-approver.outputs.result == 'authorized'
         uses: actions/github-script@v6
         with:
           script: |
@@ -83,29 +99,12 @@ jobs:
             console.log(`Extracted commit SHA: ${commitSha}`);
 
       - uses: actions/checkout@v2
-        if: steps.check-approver.outputs.result == 'true'
+        if: steps.check-approver.outputs.result == 'authorized'
         with:
           ref: ${{ steps.extract-sha.outputs.commit_sha }}
 
-      - name: Add Response Comment
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const approver = context.payload.comment.user.login;
-            const isApproved = ${{ steps.check-approver.outputs.result }};
-            
-            if (!isApproved) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ @${approver} is not authorized to approve deployments. Please wait for approval from an authorized team member.`
-              });
-              return;
-            }
-
       - name: Verify correct commit
-        if: steps.check-approver.outputs.result == 'true'
+        if: steps.check-approver.outputs.result == 'authorized'
         run: |
           current_sha=$(git rev-parse HEAD)
           expected_sha=${{ steps.extract-sha.outputs.commit_sha }}
@@ -116,13 +115,13 @@ jobs:
           echo "Verified correct commit SHA: $current_sha"
 
       - name: Deploy to Staging
-        if: steps.check-approver.outputs.result == 'true'
+        if: steps.check-approver.outputs.result == 'authorized'
         run: |
           echo "Deploying commit ${{ steps.extract-sha.outputs.commit_sha }} to staging..."
           # Add your deployment commands here
           
       - name: Close Approval Issue
-        if: steps.check-approver.outputs.result == 'true'
+        if: steps.check-approver.outputs.result == 'authorized'
         uses: actions/github-script@v6
         with:
           script: |
