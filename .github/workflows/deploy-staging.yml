@@ -12,6 +12,7 @@ permissions:
 jobs:
   process-approval:
     runs-on: ubuntu-latest
+
     if: |
       contains(github.event.issue.title, 'Deploy to Staging needs approval') &&
       (contains(github.event.comment.body, 'approve') || contains(github.event.comment.body, 'LGTM'))
@@ -29,7 +30,9 @@ jobs:
             }
             const commitSha = match[1];
             core.setOutput('commit_sha', commitSha);
+            core.setOutput('issue_number', context.payload.issue.number);
             console.log(`Extracted commit SHA: ${commitSha}`);
+            console.log(`Issue number: ${context.payload.issue.number}`);
 
       - uses: actions/checkout@v2
         with:
@@ -54,18 +57,22 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
+            // Get issue number from the event payload
+            const issue_number = context.payload.issue.number;
+            const deployedSha = '${{ steps.extract-sha.outputs.commit_sha }}';
+            
+            // Close the issue
             await github.rest.issues.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.event.issue.number,
+              issue_number: issue_number,
               state: 'closed'
             });
             
-            const deployedSha = '${{ steps.extract-sha.outputs.commit_sha }}';
+            // Add completion comment
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.event.issue.number,
+              issue_number: issue_number,
               body: `✅ Deployment to staging completed successfully!\n\nDeployed commit: ${deployedSha}\nBranch: dev`
             });
-            
