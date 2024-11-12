@@ -20,7 +20,6 @@ jobs:
       - name: Check Approver
         id: check-approver
         uses: actions/github-script@v6
-        continue-on-error: true
         with:
           script: |
             // Define allowed approvers
@@ -42,10 +41,12 @@ jobs:
             // First check if user is directly in allowed list
             if (ALLOWED_APPROVERS.includes(commenter)) {
               console.log('Approver is in allowed users list');
-              return 'authorized';
+              core.setOutput('status', 'authorized');
+              return;
             }
             
             // Check if user is member of allowed teams
+            let isTeamMember = false;
             for (const team of ALLOWED_TEAMS) {
               try {
                 const { data: isMember } = await github.rest.teams.getMembershipForUserInOrg({
@@ -56,20 +57,24 @@ jobs:
                 
                 if (isMember.state === 'active') {
                   console.log(`Approver is member of team: ${team}`);
-                  return 'authorized';
+                  isTeamMember = true;
+                  break;
                 }
               } catch (error) {
-                // If team is not found or any other error, log it and continue checking other teams
                 console.log(`Error checking membership in team ${team}:`, error.message);
                 continue;
               }
             }
             
-            console.log('User not authorized to approve deployments');
-            return 'unauthorized';
+            if (isTeamMember) {
+              core.setOutput('status', 'authorized');
+            } else {
+              console.log('User not authorized to approve deployments');
+              core.setOutput('status', 'unauthorized');
+            }
 
       - name: Handle Unauthorized User
-        if: steps.check-approver.outputs.result == 'unauthorized'
+        if: steps.check-approver.outputs.status == 'unauthorized'
         uses: actions/github-script@v6
         with:
           script: |
@@ -84,7 +89,7 @@ jobs:
 
       - name: Extract commit SHA
         id: extract-sha
-        if: steps.check-approver.outputs.result == 'authorized'
+        if: steps.check-approver.outputs.status == 'authorized'
         uses: actions/github-script@v6
         with:
           script: |
@@ -99,12 +104,12 @@ jobs:
             console.log(`Extracted commit SHA: ${commitSha}`);
 
       - uses: actions/checkout@v2
-        if: steps.check-approver.outputs.result == 'authorized'
+        if: steps.check-approver.outputs.status == 'authorized'
         with:
           ref: ${{ steps.extract-sha.outputs.commit_sha }}
 
       - name: Verify correct commit
-        if: steps.check-approver.outputs.result == 'authorized'
+        if: steps.check-approver.outputs.status == 'authorized'
         run: |
           current_sha=$(git rev-parse HEAD)
           expected_sha=${{ steps.extract-sha.outputs.commit_sha }}
@@ -115,13 +120,13 @@ jobs:
           echo "Verified correct commit SHA: $current_sha"
 
       - name: Deploy to Staging
-        if: steps.check-approver.outputs.result == 'authorized'
+        if: steps.check-approver.outputs.status == 'authorized'
         run: |
           echo "Deploying commit ${{ steps.extract-sha.outputs.commit_sha }} to staging..."
           # Add your deployment commands here
           
       - name: Close Approval Issue
-        if: steps.check-approver.outputs.result == 'authorized'
+        if: steps.check-approver.outputs.status == 'authorized'
         uses: actions/github-script@v6
         with:
           script: |
