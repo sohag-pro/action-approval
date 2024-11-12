@@ -1,0 +1,45 @@
+name: Create Approval Issue
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+
+jobs:
+  create-approval-issue:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true || github.event_name == 'push'
+    steps:
+      - name: Create Approval Issue
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issueBody = `
+            Please review and approve the deployment to staging.
+            
+            To approve, comment with one of these keywords: "approve", "LGTM"
+            
+            --- 
+            Metadata (do not modify):
+            \`\`\`json
+            {
+              "commit_sha": "${{ github.sha }}",
+              "branch": "dev",
+              "triggered_by": "${{ github.event_name }}"
+            }
+            \`\`\`
+            `;
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Deploy to Staging needs approval - ${github.sha.slice(0, 7)}`,
+              body: issueBody,
+              labels: ['deployment-approval']
+            });
+            console.log(`Created issue #${issue.data.number}`);
+            

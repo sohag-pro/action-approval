@@ -1,0 +1,66 @@
+name: Deploy to Staging
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  process-approval:
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.issue.title, 'Deploy to Staging needs approval') &&
+      (contains(github.event.comment.body, 'approve') || contains(github.event.comment.body, 'LGTM'))
+    steps:
+      - name: Extract commit SHA
+        id: extract-sha
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issueBody = context.payload.issue.body;
+            const match = issueBody.match(/"commit_sha":\s*"([a-f0-9]+)"/);
+            if (!match) {
+              core.setFailed('Could not find commit SHA in issue body');
+              return;
+            }
+            const commitSha = match[1];
+            core.setOutput('commit_sha', commitSha);
+            console.log(`Extracted commit SHA: ${commitSha}`);
+
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ steps.extract-sha.outputs.commit_sha }}
+
+      - name: Verify correct commit
+        run: |
+          current_sha=$(git rev-parse HEAD)
+          expected_sha=${{ steps.extract-sha.outputs.commit_sha }}
+          if [ "$current_sha" != "$expected_sha" ]; then
+            echo "Error: Checked out SHA ($current_sha) does not match expected SHA ($expected_sha)"
+            exit 1
+          fi
+          echo "Verified correct commit SHA: $current_sha"
+
+      - name: Deploy to Staging
+        run: |
+          echo "Deploying commit ${{ steps.extract-sha.outputs.commit_sha }} to staging..."
+          # Add your deployment commands here
+          
+      - name: Close Approval Issue
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.event.issue.number,
+              state: 'closed'
+            });
+            
+            const deployedSha = '${{ steps.extract-sha.outputs.commit_sha }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.event.issue.number,
+              body: `✅ Deployment to staging completed successfully!\n\nDeployed commit: ${deployedSha}\nBranch: dev`
+            });
+            
