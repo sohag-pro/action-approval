@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Check Approver
         id: check-approver
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             // Define allowed approvers
@@ -75,7 +75,7 @@ jobs:
 
       - name: Handle Unauthorized User
         if: steps.check-approver.outputs.status == 'unauthorized'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const approver = context.payload.comment.user.login;
@@ -90,7 +90,7 @@ jobs:
       - name: Extract commit SHA
         id: extract-sha
         if: steps.check-approver.outputs.status == 'authorized'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const issueBody = context.payload.issue.body;
@@ -127,7 +127,7 @@ jobs:
           
       - name: Close Approval Issue
         if: steps.check-approver.outputs.status == 'authorized'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const issue_number = context.payload.issue.number;

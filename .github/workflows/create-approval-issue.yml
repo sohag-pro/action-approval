@@ -18,7 +18,7 @@ jobs:
     if: github.event.pull_request.merged == true || github.event_name == 'push'
     steps:
       - name: Create Approval Issue
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             let commitSha = '';
@@ -60,4 +60,3 @@ jobs:
               labels: ['deployment-approval']
             });
             console.log(`Created issue #${issue.data.number}`);
-            
