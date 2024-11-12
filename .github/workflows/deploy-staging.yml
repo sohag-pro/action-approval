@@ -17,8 +17,58 @@ jobs:
       contains(github.event.issue.title, 'Deploy to Staging needs approval') &&
       (contains(github.event.comment.body, 'approve') || contains(github.event.comment.body, 'LGTM'))
     steps:
+      - name: Check Approver
+        id: check-approver
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Define allowed approvers
+            const ALLOWED_APPROVERS = [
+              'sohag-pro',
+              'tech-lead',
+              'devops-engineer'
+            ];
+            
+            // Define allowed teams (team slugs)
+            const ALLOWED_TEAMS = [
+              'devops',
+              'senior-developers'
+            ];
+            
+            const commenter = context.payload.comment.user.login;
+            console.log(`Comment by: ${commenter}`);
+            
+            // First check if user is directly in allowed list
+            if (ALLOWED_APPROVERS.includes(commenter)) {
+              console.log('Approver is in allowed users list');
+              return true;
+            }
+            
+            // Check if user is member of allowed teams
+            try {
+              for (const team of ALLOWED_TEAMS) {
+                const { data: isMember } = await github.rest.teams.getMembershipForUserInOrg({
+                  org: context.repo.owner,
+                  team_slug: team,
+                  username: commenter
+                });
+                
+                if (isMember.state === 'active') {
+                  console.log(`Approver is member of team: ${team}`);
+                  return true;
+                }
+              }
+            } catch (error) {
+              console.log('Error checking team membership:', error);
+            }
+            
+            console.log('User not authorized to approve deployments');
+            core.setFailed('Approval must come from an authorized user or team member');
+            return false;
+
       - name: Extract commit SHA
         id: extract-sha
+        if: steps.check-approver.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
           script: |
@@ -30,15 +80,32 @@ jobs:
             }
             const commitSha = match[1];
             core.setOutput('commit_sha', commitSha);
-            core.setOutput('issue_number', context.payload.issue.number);
             console.log(`Extracted commit SHA: ${commitSha}`);
-            console.log(`Issue number: ${context.payload.issue.number}`);
 
       - uses: actions/checkout@v2
+        if: steps.check-approver.outputs.result == 'true'
         with:
           ref: ${{ steps.extract-sha.outputs.commit_sha }}
 
+      - name: Add Response Comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const approver = context.payload.comment.user.login;
+            const isApproved = ${{ steps.check-approver.outputs.result }};
+            
+            if (!isApproved) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ @${approver} is not authorized to approve deployments. Please wait for approval from an authorized team member.`
+              });
+              return;
+            }
+
       - name: Verify correct commit
+        if: steps.check-approver.outputs.result == 'true'
         run: |
           current_sha=$(git rev-parse HEAD)
           expected_sha=${{ steps.extract-sha.outputs.commit_sha }}
@@ -49,17 +116,19 @@ jobs:
           echo "Verified correct commit SHA: $current_sha"
 
       - name: Deploy to Staging
+        if: steps.check-approver.outputs.result == 'true'
         run: |
           echo "Deploying commit ${{ steps.extract-sha.outputs.commit_sha }} to staging..."
           # Add your deployment commands here
           
       - name: Close Approval Issue
+        if: steps.check-approver.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
           script: |
-            // Get issue number from the event payload
             const issue_number = context.payload.issue.number;
             const deployedSha = '${{ steps.extract-sha.outputs.commit_sha }}';
+            const approver = context.payload.comment.user.login;
             
             // Close the issue
             await github.rest.issues.update({
@@ -74,5 +143,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue_number,
-              body: `✅ Deployment to staging completed successfully!\n\nDeployed commit: ${deployedSha}\nBranch: dev`
+              body: `✅ Deployment to staging completed successfully!\n\nDeployed commit: ${deployedSha}\nBranch: dev\nApproved by: @${approver}`
             });

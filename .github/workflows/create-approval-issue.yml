@@ -21,7 +21,6 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            // Get the correct SHA based on the event type
             let commitSha = '';
             if (context.eventName === 'pull_request') {
               commitSha = context.payload.pull_request.merge_commit_sha;
@@ -33,6 +32,12 @@ jobs:
             
             const issueBody = `
             Please review and approve the deployment to staging.
+            
+            ### Approval Instructions
+            - Only authorized team members can approve this deployment
+            - Authorized approvers:
+              - @sohag-pro
+              - Members of teams: devops, senior-developers
             
             To approve, comment with one of these keywords: "approve", "LGTM"
             
@@ -55,3 +60,4 @@ jobs:
               labels: ['deployment-approval']
             });
             console.log(`Created issue #${issue.data.number}`);
+            
