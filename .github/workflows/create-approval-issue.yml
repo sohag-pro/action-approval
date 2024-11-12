@@ -18,6 +18,16 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
+            // Get the correct SHA based on the event type
+            let commitSha = '';
+            if (context.eventName === 'pull_request') {
+              commitSha = context.payload.pull_request.merge_commit_sha;
+            } else {
+              commitSha = context.sha;
+            }
+            
+            const shortSha = commitSha.substring(0, 7);
+            
             const issueBody = `
             Please review and approve the deployment to staging.
             
@@ -27,9 +37,9 @@ jobs:
             Metadata (do not modify):
             \`\`\`json
             {
-              "commit_sha": "${{ github.sha }}",
+              "commit_sha": "${commitSha}",
               "branch": "dev",
-              "triggered_by": "${{ github.event_name }}"
+              "triggered_by": "${context.eventName}"
             }
             \`\`\`
             `;
@@ -37,9 +47,8 @@ jobs:
             const issue = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Deploy to Staging needs approval - ${github.sha.slice(0, 7)}`,
+              title: `Deploy to Staging needs approval - ${shortSha}`,
               body: issueBody,
               labels: ['deployment-approval']
             });
             console.log(`Created issue #${issue.data.number}`);
-            
