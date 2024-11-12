@@ -8,7 +8,10 @@ on:
     types: [closed]
     branches:
       - dev
-
+permissions:
+  issues: write
+  contents: read
+  
 jobs:
   create-approval-issue:
     runs-on: ubuntu-latest
